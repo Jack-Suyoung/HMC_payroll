@@ -65,6 +65,8 @@ const apiBase = (process.env.NEXT_PUBLIC_API_BASE ?? '').replace(/\/$/, '');
 const startEndpoint = `${apiBase}/api/payroll/start`;
 const statusEndpoint = `${apiBase}/api/payroll/status`;
 const currencyFmt = new Intl.NumberFormat('ko-KR');
+const BASE_POLL_INTERVAL = 1000;
+const MIN_POLL_INTERVAL = 400;
 
 type YearlyRow = {
   year: number;
@@ -89,6 +91,7 @@ type DebugEntry = {
   fetchMs: number;
   intervalMs: number | null;
   status: JobPayload['status'] | 'network_error';
+  nextDelayMs?: number;
   processed?: number;
   total?: number;
   note?: string;
@@ -243,6 +246,7 @@ function HomePage() {
         const fetchStartedAt = performance.now();
         const response = await fetch(`${statusEndpoint}?jobId=${jobId}`);
         const fetchCompletedAt = performance.now();
+        const fetchDurationMs = fetchCompletedAt - fetchStartedAt;
         const data = (await response.json()) as StatusResponse;
         if (!response.ok || !data.ok || !data.job) {
           throw new Error(data.error || '상태를 조회하지 못했습니다.');
@@ -256,14 +260,19 @@ function HomePage() {
           total: job.totalMonths ?? 0,
         });
 
+        const roundedInterval = intervalMs !== null ? Math.round(intervalMs) : null;
+        const fetchMsRounded = Math.round(fetchDurationMs);
+        const nextDelay = Math.round(Math.max(MIN_POLL_INTERVAL, BASE_POLL_INTERVAL - fetchDurationMs));
+
         const debugEntry: DebugEntry = {
           timestamp: new Date().toLocaleTimeString(),
-          fetchMs: Math.round(fetchCompletedAt - fetchStartedAt),
-          intervalMs: intervalMs !== null ? Math.round(intervalMs) : null,
+          fetchMs: fetchMsRounded,
+          intervalMs: roundedInterval,
           status: job.status,
           processed: job.processedMonths,
           total: job.totalMonths,
           note: job.message,
+          nextDelayMs: job.status === 'completed' || job.status === 'error' ? undefined : nextDelay,
         };
         setDebugSignals((prev) => {
           const next = [debugEntry, ...prev];
@@ -284,7 +293,7 @@ function HomePage() {
           return;
         }
 
-        pollTimeoutRef.current = setTimeout(poll, 1000);
+        pollTimeoutRef.current = setTimeout(poll, nextDelay);
       } catch (error) {
         if (cancelled) return;
         const message = error instanceof Error ? error.message : String(error);
@@ -634,6 +643,7 @@ function HomePage() {
                   <th>시각</th>
                   <th>Fetch(ms)</th>
                   <th>Interval(ms)</th>
+                  <th>Next(ms)</th>
                   <th>상태</th>
                   <th>진행도</th>
                   <th>메시지</th>
@@ -645,6 +655,7 @@ function HomePage() {
                     <td>{entry.timestamp}</td>
                     <td>{entry.fetchMs}</td>
                     <td>{entry.intervalMs ?? '—'}</td>
+                    <td>{entry.nextDelayMs ?? '—'}</td>
                     <td>{entry.status}</td>
                     <td>
                       {entry.processed !== undefined && entry.total !== undefined
