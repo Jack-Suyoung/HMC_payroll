@@ -86,17 +86,6 @@ type GroupRow = {
   net: number;
 };
 
-type DebugEntry = {
-  timestamp: string;
-  fetchMs: number;
-  intervalMs: number | null;
-  status: JobPayload['status'] | 'network_error';
-  nextDelayMs?: number;
-  processed?: number;
-  total?: number;
-  note?: string;
-};
-
 function computeYearly(transactions: Txn[]): YearlyRow[] {
   const map = new Map<number, { gross: number; deductions: number; net: number; months: Set<number> }>();
   for (const txn of transactions) {
@@ -162,8 +151,6 @@ function HomePage() {
   const [transactions, setTransactions] = useState<Txn[]>([]);
   const [jobId, setJobId] = useState<string | null>(null);
   const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastPollTimeRef = useRef<number | null>(null);
-  const [debugSignals, setDebugSignals] = useState<DebugEntry[]>([]);
 
   const yearlyRows = useMemo(() => computeYearly(transactions), [transactions]);
   const groupRows = useMemo(() => computeGroupBreakdown(transactions), [transactions]);
@@ -192,8 +179,6 @@ function HomePage() {
     setProgress({ processed: 0, total: 0 });
     setTransactions([]);
     setJobId(null);
-    setDebugSignals([]);
-    lastPollTimeRef.current = null;
 
     try {
       const response = await fetch(startEndpoint, {
@@ -231,17 +216,12 @@ function HomePage() {
         clearTimeout(pollTimeoutRef.current);
         pollTimeoutRef.current = null;
       }
-      lastPollTimeRef.current = null;
       return;
     }
 
     let cancelled = false;
 
     const poll = async () => {
-      const startedAt = performance.now();
-      const intervalMs = lastPollTimeRef.current === null ? null : startedAt - lastPollTimeRef.current;
-      lastPollTimeRef.current = startedAt;
-
       try {
         const fetchStartedAt = performance.now();
         const response = await fetch(`${statusEndpoint}?jobId=${jobId}`);
@@ -260,25 +240,6 @@ function HomePage() {
           total: job.totalMonths ?? 0,
         });
 
-        const roundedInterval = intervalMs !== null ? Math.round(intervalMs) : null;
-        const fetchMsRounded = Math.round(fetchDurationMs);
-        const nextDelay = Math.round(Math.max(MIN_POLL_INTERVAL, BASE_POLL_INTERVAL - fetchDurationMs));
-
-        const debugEntry: DebugEntry = {
-          timestamp: new Date().toLocaleTimeString(),
-          fetchMs: fetchMsRounded,
-          intervalMs: roundedInterval,
-          status: job.status,
-          processed: job.processedMonths,
-          total: job.totalMonths,
-          note: job.message,
-          nextDelayMs: job.status === 'completed' || job.status === 'error' ? undefined : nextDelay,
-        };
-        setDebugSignals((prev) => {
-          const next = [debugEntry, ...prev];
-          return next.slice(0, 10);
-        });
-
         if (job.status === 'completed') {
           setTransactions(job.transactions ?? []);
           setLoading(false);
@@ -293,24 +254,14 @@ function HomePage() {
           return;
         }
 
-        pollTimeoutRef.current = setTimeout(poll, nextDelay);
+        const nextDelay = Math.max(MIN_POLL_INTERVAL, BASE_POLL_INTERVAL - fetchDurationMs);
+        pollTimeoutRef.current = setTimeout(poll, Math.round(nextDelay));
       } catch (error) {
         if (cancelled) return;
         const message = error instanceof Error ? error.message : String(error);
         setStatusMessage(`오류: ${message}`);
         setLoading(false);
         setJobId(null);
-        const errorEntry: DebugEntry = {
-          timestamp: new Date().toLocaleTimeString(),
-          fetchMs: 0,
-          intervalMs: intervalMs !== null ? Math.round(intervalMs) : null,
-          status: 'network_error',
-          note: message,
-        };
-        setDebugSignals((prev) => {
-          const next = [errorEntry, ...prev];
-          return next.slice(0, 10);
-        });
       }
     };
 
@@ -630,44 +581,6 @@ function HomePage() {
               />
             </div>
           )}
-        </section>
-      )}
-
-      {debugSignals.length > 0 && (
-        <section className="card">
-          <h2>디버그 신호</h2>
-          <div className="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>시각</th>
-                  <th>Fetch(ms)</th>
-                  <th>Interval(ms)</th>
-                  <th>Next(ms)</th>
-                  <th>상태</th>
-                  <th>진행도</th>
-                  <th>메시지</th>
-                </tr>
-              </thead>
-              <tbody>
-                {debugSignals.map((entry, index) => (
-                  <tr key={`${entry.timestamp}-${index}`}>
-                    <td>{entry.timestamp}</td>
-                    <td>{entry.fetchMs}</td>
-                    <td>{entry.intervalMs ?? '—'}</td>
-                    <td>{entry.nextDelayMs ?? '—'}</td>
-                    <td>{entry.status}</td>
-                    <td>
-                      {entry.processed !== undefined && entry.total !== undefined
-                        ? `${entry.processed ?? 0}/${entry.total ?? 0}`
-                        : '—'}
-                    </td>
-                    <td className="muted">{entry.note ?? ''}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         </section>
       )}
 
