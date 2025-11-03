@@ -143,7 +143,7 @@ function computeGroupBreakdown(transactions: Txn[]): GroupRow[] {
 function HomePage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [years, setYears] = useState('2023-2025');
+  const [years, setYears] = useState('2024-2025');
 
   const [loading, setLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState('대기 중');
@@ -151,6 +151,8 @@ function HomePage() {
   const [transactions, setTransactions] = useState<Txn[]>([]);
   const [jobId, setJobId] = useState<string | null>(null);
   const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [view, setView] = useState<'login' | 'results'>('login');
+  const progressPercent = progress.total > 0 ? Math.min(100, Math.round((progress.processed / progress.total) * 100)) : 0;
 
   const yearlyRows = useMemo(() => computeYearly(transactions), [transactions]);
   const groupRows = useMemo(() => computeGroupBreakdown(transactions), [transactions]);
@@ -179,6 +181,7 @@ function HomePage() {
     setProgress({ processed: 0, total: 0 });
     setTransactions([]);
     setJobId(null);
+    setView('login');
 
     try {
       const response = await fetch(startEndpoint, {
@@ -207,6 +210,20 @@ function HomePage() {
       setStatusMessage(`오류: ${message}`);
       alert(message);
       setLoading(false);
+      setView('login');
+    }
+  };
+
+  const handleBackToLogin = () => {
+    setView('login');
+    setStatusMessage('대기 중');
+    setProgress({ processed: 0, total: 0 });
+    setTransactions([]);
+    setLoading(false);
+    setJobId(null);
+    if (pollTimeoutRef.current) {
+      clearTimeout(pollTimeoutRef.current);
+      pollTimeoutRef.current = null;
     }
   };
 
@@ -244,12 +261,14 @@ function HomePage() {
           setTransactions(job.transactions ?? []);
           setLoading(false);
           setJobId(null);
+          setView('results');
           return;
         }
 
         if (job.status === 'error') {
           setLoading(false);
           setJobId(null);
+          setView('login');
           alert(job.error || '작업이 실패했습니다.');
           return;
         }
@@ -262,6 +281,7 @@ function HomePage() {
         setStatusMessage(`오류: ${message}`);
         setLoading(false);
         setJobId(null);
+        setView('login');
       }
     };
 
@@ -354,234 +374,248 @@ function HomePage() {
         <h1>HMC 급여 명세 대시보드</h1>
       </header>
 
-      <section className="card">
-        <h2>로그인 및 기간 선택</h2>
-        <form className="form" onSubmit={handleSubmit}>
-          <div className="form-row">
-            <div className="field">
-              <label htmlFor="username">아이디</label>
-              <input
-                id="username"
-                placeholder="사번"
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-                inputMode="numeric"
-                required
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="password">비밀번호</label>
-              <input
-                id="password"
-                type="password"
-                placeholder="비밀번호"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                required
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="years">연도</label>
-              <input
-                id="years"
-                placeholder="예: 2023-2025 또는 2023,2024"
-                value={years}
-                onChange={(event) => setYears(event.target.value)}
-              />
-            </div>
-            <div className="button-status">
-              <button type="submit" disabled={loading}>
-                {loading ? '승인 대기 중…' : '데이터 가져오기'}
-              </button>
-              <div className="status-box inline">
-                <span className="status-dot" aria-hidden="true" />
-                <div>
-                  <p>{statusMessage}</p>
-                  {progress.total > 0 && (
-                    <p className="status-progress">
-                      {progress.processed}/{progress.total}
-                    </p>
-                  )}
+      {view === 'login' && (
+        <section className="card">
+          <h2>로그인 및 기간 선택</h2>
+          <form className="form" onSubmit={handleSubmit}>
+            <div className="form-row">
+              <div className="field">
+                <label htmlFor="username">아이디</label>
+                <input
+                  id="username"
+                  placeholder="사번"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  inputMode="numeric"
+                  required
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="password">비밀번호</label>
+                <input
+                  id="password"
+                  type="password"
+                  placeholder="비밀번호"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  required
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="years">연도</label>
+                <input
+                  id="years"
+                  placeholder="예: 2023-2025 또는 2023,2024"
+                  value={years}
+                  onChange={(event) => setYears(event.target.value)}
+                />
+              </div>
+              <div className="button-status">
+                <button type="submit" disabled={loading}>
+                  {loading ? '승인 대기 중…' : '데이터 가져오기'}
+                </button>
+                <div className="status-box inline">
+                  <span className="status-dot" aria-hidden="true" />
+                  <div className="status-text">
+                    <p>{statusMessage}</p>
+                    {progress.total > 0 && (
+                      <>
+                        <p className="status-progress">
+                          {progress.processed}/{progress.total}
+                        </p>
+                        <div className="progress-bar">
+                          <div className="progress-bar-fill" style={{ width: `${progressPercent}%` }} />
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        </form>
-      </section>
-
-      <section className="card">
-        <div className="card-header">
-          <h2>급여 명세 히스토리</h2>
-          <div className="actions">
-            <span className="badge">{transactions.length} 건</span>
-          </div>
-        </div>
-
-        {totalSummary ? (
-          <div className="summary-grid">
-            <article className="summary-card">
-              <p className="summary-label">총 지급액</p>
-              <p className="summary-value">{currencyFmt.format(totalSummary.gross)} 원</p>
-            </article>
-            <article className="summary-card">
-              <p className="summary-label">총 공제액</p>
-              <p className="summary-value">{currencyFmt.format(totalSummary.deductions)} 원</p>
-            </article>
-            <article className="summary-card">
-              <p className="summary-label">총 실수령</p>
-              <p className="summary-value">{currencyFmt.format(totalSummary.net)} 원</p>
-            </article>
-          </div>
-        ) : (
-          <p className="muted">데이터를 조회하면 히스토리가 표시됩니다.</p>
-        )}
-
-        {yearlyRows.length > 0 && (
-          <>
-            <h3>연도별 요약</h3>
-            <div className="table-wrapper">
-              <table>
-                <thead>
-                  <tr>
-                    <th>연도</th>
-                    <th>월수</th>
-                    <th>총 지급</th>
-                    <th>총 공제</th>
-                    <th>총 실수령</th>
-                    <th>누적 지급</th>
-                    <th>누적 실수령</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {yearlyRows.map((row) => (
-                    <tr key={row.year}>
-                      <td>{row.year}</td>
-                      <td>{row.months}</td>
-                      <td>{currencyFmt.format(row.gross)}</td>
-                      <td>{currencyFmt.format(row.deductions)}</td>
-                      <td>{currencyFmt.format(row.net)}</td>
-                      <td>{currencyFmt.format(row.grossCum)}</td>
-                      <td>{currencyFmt.format(row.netCum)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-
-        {groupRows.length > 0 && (
-          <>
-            <h3>그룹별 요약 (1=급여, 2=상여, 3=소급)</h3>
-            <div className="table-wrapper">
-              <table>
-                <thead>
-                  <tr>
-                    <th>연도</th>
-                    <th>그룹</th>
-                    <th>총 지급</th>
-                    <th>총 공제</th>
-                    <th>총 실수령</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {groupRows.map((row) => (
-                    <tr key={`${row.year}-${row.group}`}>
-                      <td>{row.year}</td>
-                      <td>{row.group || '미지정'}</td>
-                      <td>{currencyFmt.format(row.gross)}</td>
-                      <td>{currencyFmt.format(row.deductions)}</td>
-                      <td>{currencyFmt.format(row.net)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-      </section>
-
-      {yearlyRows.length > 0 && (
-        <section className="card">
-          <h2>그래프</h2>
-          <div className="chart">
-            <Bar
-              data={chartYearlyData}
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                  tooltip: {
-                    callbacks: {
-                      label: (context) =>
-                        `${context.dataset.label}: ${currencyFmt.format(Number(context.raw ?? 0))} 원`,
-                    },
-                  },
-                  legend: { position: 'bottom' },
-                },
-                scales: {
-                  y: {
-                    ticks: {
-                      callback: (value) => currencyFmt.format(Number(value ?? 0)),
-                    },
-                  },
-                },
-              }}
-            />
-          </div>
-          <div className="chart">
-            <Line
-              data={chartCumulativeData}
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                  tooltip: {
-                    callbacks: {
-                      label: (context) =>
-                        `${context.dataset.label ?? ''}: ${currencyFmt.format(Number(context.raw ?? 0))} 원`,
-                    },
-                  },
-                  legend: { position: 'bottom' },
-                },
-                scales: {
-                  y: {
-                    ticks: {
-                      callback: (value) => currencyFmt.format(Number(value ?? 0)),
-                    },
-                  },
-                },
-              }}
-            />
-          </div>
-          {groupRows.length > 0 && (
-            <div className="chart">
-              <Bar
-                data={chartGroupData}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    tooltip: {
-                      callbacks: {
-                        label: (context) =>
-                          `${context.dataset.label ?? ''}: ${currencyFmt.format(Number(context.raw ?? 0))} 원`,
-                      },
-                    },
-                    legend: { position: 'bottom' },
-                  },
-                  scales: {
-                    y: {
-                      ticks: {
-                        callback: (value) => currencyFmt.format(Number(value ?? 0)),
-                      },
-                    },
-                  },
-                }}
-              />
-            </div>
-          )}
+          </form>
         </section>
+      )}
+
+      {view === 'results' && (
+        <>
+          <section className="card">
+            <div className="card-header">
+              <h2>급여 명세 히스토리</h2>
+              <div className="card-header-actions">
+                <button type="button" className="back-button" onClick={handleBackToLogin}>
+                  뒤로가기
+                </button>
+                <span className="badge">{transactions.length} 건</span>
+              </div>
+            </div>
+
+            {totalSummary ? (
+              <div className="summary-grid">
+                <article className="summary-card">
+                  <p className="summary-label">총 지급액</p>
+                  <p className="summary-value">{currencyFmt.format(totalSummary.gross)} 원</p>
+                </article>
+                <article className="summary-card">
+                  <p className="summary-label">총 공제액</p>
+                  <p className="summary-value">{currencyFmt.format(totalSummary.deductions)} 원</p>
+                </article>
+                <article className="summary-card">
+                  <p className="summary-label">총 실수령</p>
+                  <p className="summary-value">{currencyFmt.format(totalSummary.net)} 원</p>
+                </article>
+              </div>
+            ) : (
+              <p className="muted">데이터를 조회하면 히스토리가 표시됩니다.</p>
+            )}
+
+            {yearlyRows.length > 0 && (
+              <>
+                <h3>연도별 요약</h3>
+                <div className="table-wrapper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>연도</th>
+                        <th>월수</th>
+                        <th>총 지급</th>
+                        <th>총 공제</th>
+                        <th>총 실수령</th>
+                        <th>누적 지급</th>
+                        <th>누적 실수령</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {yearlyRows.map((row) => (
+                        <tr key={row.year}>
+                          <td>{row.year}</td>
+                          <td>{row.months}</td>
+                          <td>{currencyFmt.format(row.gross)}</td>
+                          <td>{currencyFmt.format(row.deductions)}</td>
+                          <td>{currencyFmt.format(row.net)}</td>
+                          <td>{currencyFmt.format(row.grossCum)}</td>
+                          <td>{currencyFmt.format(row.netCum)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+
+            {groupRows.length > 0 && (
+              <>
+                <h3>그룹별 요약 (1=급여, 2=상여, 3=소급)</h3>
+                <div className="table-wrapper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>연도</th>
+                        <th>그룹</th>
+                        <th>총 지급</th>
+                        <th>총 공제</th>
+                        <th>총 실수령</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {groupRows.map((row) => (
+                        <tr key={`${row.year}-${row.group}`}>
+                          <td>{row.year}</td>
+                          <td>{row.group || '미지정'}</td>
+                          <td>{currencyFmt.format(row.gross)}</td>
+                          <td>{currencyFmt.format(row.deductions)}</td>
+                          <td>{currencyFmt.format(row.net)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </section>
+
+          {yearlyRows.length > 0 && (
+            <section className="card">
+              <h2>그래프</h2>
+              <div className="chart">
+                <Bar
+                  data={chartYearlyData}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                      tooltip: {
+                        callbacks: {
+                          label: (context) =>
+                            `${context.dataset.label}: ${currencyFmt.format(Number(context.raw ?? 0))} 원`,
+                        },
+                      },
+                      legend: { position: 'bottom' },
+                    },
+                    scales: {
+                      y: {
+                        ticks: {
+                          callback: (value) => currencyFmt.format(Number(value ?? 0)),
+                        },
+                      },
+                    },
+                  }}
+                />
+              </div>
+              <div className="chart">
+                <Line
+                  data={chartCumulativeData}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                      tooltip: {
+                        callbacks: {
+                          label: (context) =>
+                            `${context.dataset.label ?? ''}: ${currencyFmt.format(Number(context.raw ?? 0))} 원`,
+                        },
+                      },
+                      legend: { position: 'bottom' },
+                    },
+                    scales: {
+                      y: {
+                        ticks: {
+                          callback: (value) => currencyFmt.format(Number(value ?? 0)),
+                        },
+                      },
+                    },
+                  }}
+                />
+              </div>
+              {groupRows.length > 0 && (
+                <div className="chart">
+                  <Bar
+                    data={chartGroupData}
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      plugins: {
+                        tooltip: {
+                          callbacks: {
+                            label: (context) =>
+                              `${context.dataset.label ?? ''}: ${currencyFmt.format(Number(context.raw ?? 0))} 원`,
+                          },
+                        },
+                        legend: { position: 'bottom' },
+                      },
+                      scales: {
+                        y: {
+                          ticks: {
+                            callback: (value) => currencyFmt.format(Number(value ?? 0)),
+                          },
+                        },
+                      },
+                    }}
+                  />
+                </div>
+              )}
+            </section>
+          )}
+        </>
       )}
 
       <footer className="footer">
